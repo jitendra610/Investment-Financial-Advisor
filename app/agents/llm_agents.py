@@ -1,4 +1,16 @@
 import json
+import asyncio
+import asyncio
+
+from app.prompts.manager import get_prompt
+
+
+async def load_system_prompt(agent_name: str):
+    prompt = await asyncio.to_thread(
+        get_prompt,
+        agent_name,
+    )
+    return prompt
 
 from app.agents.llm import llm
 from app.agents.schemas import (
@@ -14,37 +26,32 @@ def as_json(value):
 
 
 async def query_agent(state):
+    prompt = await load_system_prompt("query")
+
     model = llm.with_structured_output(QueryAnalysis)
 
     result = await model.ainvoke([
-        (
-            "system",
-            "You classify UK investment queries. "
-            "Return education, personal, or unrelated. "
-            "Identify the information required."
-        ),
+        ("system", prompt.content),
         ("human", state["query"]),
     ])
 
-    return {"intent": result.model_dump()}
+    return {
+        "intent": result.model_dump(),
+        "query_prompt_version": {
+            "query": {
+                "id": prompt.id,
+                "version": prompt.version,
+            }
+        },
+    }
 
 
 async def risk_agent(state):
     model = llm.with_structured_output(RiskAnalysis)
-
+    prompt = await load_system_prompt("risk")
     result = await model.ainvoke([
-        (
-            "system",
-            "You are a UK bank investment risk analyst. "
-            "Interpret the supplied financial profile and "
-            "retrieved policy evidence. Distinguish risk "
-            "tolerance from risk capacity. Do not invent facts "
-            "or override recorded assessments. "
-            "Do not give investment recommendations. "
-            "Identify missing information."
-        ),
-        (
-            "human",
+        ("system", prompt.content),
+        ("human",
             as_json({
                 "customer": state["customer"],
                 "knowledge": state["knowledge"],
@@ -53,22 +60,21 @@ async def risk_agent(state):
         ),
     ])
 
-    return {"risk": result.model_dump()}
+    return {"risk": result.model_dump(),
+            "risk_prompt_version": {
+                        "query": {
+                            "id": prompt.id,
+                            "version": prompt.version,
+                        }
+                    },
+            }
 
 
 async def portfolio_agent(state):
     model = llm.with_structured_output(PortfolioAnalysis)
-
+    prompt = await load_system_prompt("portfolio")
     result = await model.ainvoke([
-        (
-            "system",
-            "You explain UK investment options for educational "
-            "purposes only. Discuss diversification, liquidity, "
-            "risk, time horizon and trade-offs. "
-            "Do not prescribe allocations, specific purchases "
-            "or guaranteed returns. Use retrieved evidence "
-            "and identify missing information."
-        ),
+        (       "system", prompt.content),
         (
             "human",
             as_json({
@@ -80,22 +86,20 @@ async def portfolio_agent(state):
         ),
     ])
 
-    return {"portfolio": result.model_dump()}
+    return {"portfolio": result.model_dump(),
+            "portfolio_prompt_version": {
+                        "query": {
+                            "id": prompt.id,
+                            "version": prompt.version,
+                        }
+                    },}
 
 
 async def compliance_agent(state):
     model = llm.with_structured_output(ComplianceAnalysis)
-
+    prompt = await load_system_prompt("compliance")
     result = await model.ainvoke([
-        (
-            "system",
-            "You review UK investment guidance for potential "
-            "compliance concerns. Identify unsupported claims, "
-            "personalized recommendations, missing suitability "
-            "information, and conflicts with supplied policies. "
-            "Do not claim that fictional policy documents are "
-            "verified FCA rules. When uncertain, require review."
-        ),
+        ("system", prompt.content),
         (
             "human",
             as_json({
@@ -141,15 +145,11 @@ async def compliance_agent(state):
 
 
 async def response_agent(state):
+    prompt = await load_system_prompt("response")
     result = await llm.ainvoke([
         (
             "system",
-            "You are a UK investment education assistant. "
-            "Give a clear, concise, evidence-grounded explanation. "
-            "Use only supplied evidence for policy claims. "
-            "Do not provide personalized investment instructions, "
-            "specific allocations, or guaranteed returns. "
-            "Mention uncertainty and relevant sources."
+            prompt.content
         ),
         (
             "human",
@@ -165,6 +165,7 @@ async def response_agent(state):
     return {
         "response": result.content,
         "status": "completed",
+        "response_prompt_version": prompt.version
     }
 
 

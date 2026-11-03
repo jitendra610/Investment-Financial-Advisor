@@ -1,30 +1,27 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 
-from app.api.health import router as health_router
-from app.core.config import settings
-from app.db.database import engine
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    yield
-    await engine.dispose()
+from app.api.routes.auth import router as auth_router
+from app.api.routes.investment import router as investment_router
 
 
 app = FastAPI(
-    title=settings.APP_NAME,
-    debug=settings.DEBUG,
-    lifespan=lifespan,
+    title="Investment Advisor API",
+    description="Multi-Agent Investment Guidance API",
+    version="1.0.0",
 )
 
-app.include_router(health_router)
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
-@app.get("/")
-async def root():
-    return {
-        "application": settings.APP_NAME,
-        "status": "running",
-    }
+app.include_router(
+    auth_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    investment_router,
+    prefix="/api/v1",
+)

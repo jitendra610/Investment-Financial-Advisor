@@ -14,3 +14,9 @@ class InvestmentState(TypedDict):
 
     response: NotRequired[str]
     status: NotRequired[str]
+
+    query_prompt_version: NotRequired[int]
+    risk_prompt_version: NotRequired[int]
+    portfolio_prompt_version: NotRequired[int]
+    compliance_prompt_version: NotRequired[int]
+    response_prompt_version: NotRequired[int]
