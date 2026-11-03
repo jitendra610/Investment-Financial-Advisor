@@ -1,0 +1,12 @@
+SAMPLE BANK COMPLIANCE POLICY - TRAINING ONLY
+Document ID: DEMO-COMP-001
+
+1. Distinguish general financial education from a personal recommendation.
+2. Do not give a personalized investment recommendation unless the applicable authorization, suitability process, customer information, and review controls are satisfied.
+3. Explain material risks, fees, liquidity restrictions, and uncertainty in clear language.
+4. Do not claim FCA approval for a specific product or imply that investment values are guaranteed.
+5. Do not expose customer personal data in retrieval logs, LLM prompts, or citations unless authorized and necessary.
+6. Flag missing information and route regulated advice requests to an appropriately authorized adviser.
+7. Keep records of source documents, retrieval decisions, and the answer version for audit.
+
+These are illustrative internal controls, not legal advice or an exhaustive statement of UK law.
