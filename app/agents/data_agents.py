@@ -46,11 +46,9 @@ async def customer_agent(state):
             }
         }
 
-
+from app.rag.retrieval import hybrid_search
 async def knowledge_agent(state):
     # Adapt this import to the retriever from Lesson 3.
-    from app.rag.retrieval import hybrid_search
-
     # Execute synchronous retrieval in a separate thread
     results = await asyncio.to_thread(
         hybrid_search,
