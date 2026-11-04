@@ -5,6 +5,13 @@ from app.agents.data_agents import (
     customer_agent,
     knowledge_agent,
 )
+from app.agents.query_agent import query_agent
+from app.agents.risk_agent import risk_agent
+from app.agents.portfolio_agent import portfolio_agent
+from app.agents.compliance_agent import compliance_agent
+from app.agents.response_agent import response_agent
+from app.agents.llm_agents import human_review_agent    
+'''
 from app.agents.llm_agents import (
     query_agent,
     risk_agent,
@@ -13,7 +20,7 @@ from app.agents.llm_agents import (
     response_agent,
     human_review_agent,
 )
-
+'''
 
 def compliance_router(state):
     compliance = state["compliance"]

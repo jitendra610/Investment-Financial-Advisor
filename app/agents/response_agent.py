@@ -3,6 +3,8 @@ from langchain_openai import ChatOpenAI
 from app.agents.state import InvestmentState
 from app.prompts import load_system_prompt
 
+'''
+
 def response_agent(state: InvestmentState) -> dict:
     excerpts = '\n\n'.join(f"[{x['source']}] {x['content']}" for x in state['knowledge']['chunks'])
     if not excerpts:
@@ -20,3 +22,45 @@ def review_response(state: InvestmentState) -> dict:
     reasons = '; '.join(state['compliance']['reasons'])
     return {'response': 'Human review required. No personalized recommendation generated. Reasons: ' + reasons,
             'status': 'needs_review'}
+
+'''
+from app.prompts.manager import get_prompt
+from app.prompts.manager import get_prompt
+import asyncio
+import json
+from app.agents.llm import llm
+from app.prompts import load_system_prompt
+
+async def load_system_prompt(agent_name: str):
+    prompt = await asyncio.to_thread(
+        get_prompt,
+        agent_name,
+    )
+    return prompt
+
+def as_json(value):
+    return json.dumps(value, default=str)
+
+async def response_agent(state):
+    prompt = await load_system_prompt("response")
+    result = await llm.ainvoke([
+        (
+            "system",
+            prompt.content
+        ),
+        (
+            "human",
+            as_json({
+                "query": state["query"],
+                "knowledge": state["knowledge"],
+                "portfolio": state["portfolio"],
+                "compliance": state["compliance"],
+            }),
+        ),
+    ])
+
+    return {
+        "response": result.content,
+        "status": "completed",
+        "response_prompt_version": prompt.version
+    }

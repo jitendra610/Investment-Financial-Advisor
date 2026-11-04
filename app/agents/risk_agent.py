@@ -1,6 +1,6 @@
 from app.agents.state import InvestmentState
 
-def risk_agent(state: InvestmentState) -> dict:
+'''def risk_agent(state: InvestmentState) -> dict:
     c = state['customer']
     if not c.get('found'):
         return {'risk': {'review_required': True, 'reasons': ['Customer not found']}}
@@ -21,3 +21,46 @@ def risk_agent(state: InvestmentState) -> dict:
         reasons.append('Emergency fund not assessed')
     return {'risk': {'monthly_surplus': surplus, 'reasons': reasons,
                      'review_required': bool(reasons)}}
+'''
+
+from app.prompts.manager import get_prompt
+from app.prompts import load_system_prompt
+import asyncio
+import json
+from app.agents.llm import llm
+from app.agents.schemas import (
+    RiskAnalysis, 
+)
+
+async def load_system_prompt(agent_name: str):
+    prompt = await asyncio.to_thread(
+        get_prompt,
+        agent_name,
+    )
+    return prompt
+
+def as_json(value):
+    return json.dumps(value, default=str)
+
+async def risk_agent(state):
+    model = llm.with_structured_output(RiskAnalysis)
+    prompt = await load_system_prompt("risk")
+    result = await model.ainvoke([
+        ("system", prompt.content),
+        ("human",
+            as_json({
+                "customer": state["customer"],
+                "knowledge": state["knowledge"],
+                "question": state["query"],
+            }),
+        ),
+    ])
+
+    return {"risk": result.model_dump(),
+            "risk_prompt_version": {
+                        "query": {
+                            "id": prompt.id,
+                            "version": prompt.version,
+                        }
+                    },
+            }
