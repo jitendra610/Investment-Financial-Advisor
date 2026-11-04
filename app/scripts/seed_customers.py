@@ -62,6 +62,21 @@ CUSTOMERS = [
         "horizon": 15,
         "experience": "advanced",
     },
+    {
+        "id": "CUST-004",
+        "full_name": "jitendra Madarkar",
+        "age": 28,
+        "occupation": "Marketing Specialist",
+        "income": "9000.00",
+        "expenses": "2000.00",
+        "savings": "15000.00",
+        "emergency": "8000.00",
+        "debt_payment": "4000.00",
+        "risk": "moderate",
+        "capacity": "moderate",
+        "horizon": 8,
+        "experience": "intermediate",
+    },
 ]
 
 

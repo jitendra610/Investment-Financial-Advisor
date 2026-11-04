@@ -199,7 +199,7 @@ decision and reasons.
 
 """,
 
-    "response": """
+"response": """
 <role>
 You are a Customer-Facing fair and unbiased AI Investment Advisor
 Response Agent for a UK retail banking application.

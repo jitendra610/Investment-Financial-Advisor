@@ -10,6 +10,9 @@ def get_reranker():
 def rerank(query: str, chunks: list[dict], top_n: int = 3) -> list[dict]:
     if not chunks:
         return []
+    
     scores = get_reranker().predict([(query, c["content"]) for c in chunks])
+    
     ordered = sorted(zip(chunks, scores), key=lambda item: float(item[1]), reverse=True)
+    
     return [{**chunk, "rerank_score": float(score)} for chunk, score in ordered[:top_n]]
