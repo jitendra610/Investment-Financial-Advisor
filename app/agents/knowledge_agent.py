@@ -1,6 +1,7 @@
 from app.rag.retrieval import hybrid_search
 from app.rag.reranker import rerank
 from app.agents.state import InvestmentState
+
 '''
 def knowledge_agent(state: InvestmentState) -> dict:
     candidates = hybrid_search(state['query'], top_k=8)
@@ -8,3 +9,23 @@ def knowledge_agent(state: InvestmentState) -> dict:
     return {'knowledge': {'chunks': [{'source': x['source'], 'content': x['content']} for x in selected],
                           'sources': sorted({x['source'] for x in selected})}}
 '''
+
+async def knowledge_agent(state):
+    # Adapt this import to the retriever from Lesson 3.
+    # Execute synchronous retrieval in a separate thread
+    results = await asyncio.to_thread(
+        hybrid_search,
+        state["query"],
+        top_k=5,
+    )
+
+    return {
+        "knowledge": {
+            "context": "\n\n".join(
+                item["content"] for item in results
+            ),
+            "sources": [
+                item["source"] for item in results
+            ],
+        }
+    }

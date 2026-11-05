@@ -40,7 +40,7 @@ def get_contexts(knowledge: dict) -> list[str]:
 
 async def main():
 
-    query = "Explain diversification in investment portfolios."
+    query = "where to invest 100k in a diversified portfolio with moderate risk tolerance and a 5-year investment horizon?"
 
     print("\n========== STARTING EVALUATION ==========")
 

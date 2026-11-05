@@ -1,4 +1,5 @@
 """Independent sync SQLAlchemy engine for Lesson 3; existing async DB untouched."""
+
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text, String, Text, Integer, ForeignKey

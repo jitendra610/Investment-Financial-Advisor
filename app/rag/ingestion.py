@@ -29,8 +29,10 @@ def ingest(folder: str = "knowledge_base") -> int:
     docs = load_documents(folder)
     if not docs:
         raise RuntimeError(f"No PDF, Markdown or text documents found in {folder}")
-    splitter = RecursiveCharacterTextSplitter(chunk_size=700, chunk_overlap=100)
+    
+    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=100)
     chunks = [d for d in splitter.split_documents(docs) if d.page_content.strip()]
+    
     embedder = OpenAIEmbeddings(model=EMBEDDING_MODEL)
     vectors = embedder.embed_documents([d.page_content for d in chunks])
     sources = {d.metadata["source"] for d in chunks}

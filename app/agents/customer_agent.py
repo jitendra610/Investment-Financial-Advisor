@@ -1,3 +1,6 @@
+
+"""
+
 from sqlalchemy import text
 from app.rag.database import engine
 from app.agents.state import InvestmentState
@@ -29,3 +32,4 @@ def customer_agent(state: InvestmentState) -> dict:
     for key in ('monthly_income','monthly_expenses','monthly_debt_payments','emergency_fund'):
         result[key] = float(result[key]) if result[key] is not None else None
     return {'customer': result}
+"""
