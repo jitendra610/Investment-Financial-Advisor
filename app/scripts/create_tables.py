@@ -1,11 +1,25 @@
+
+"""
+Database Table Creation Script
+
+Purpose:
+1. Connect to PostgreSQL using an asynchronous SQLAlchemy engine.
+2. Register all database models.
+3. Create missing database tables.
+4. Display all available tables.
+5. Close database connections safely.
+"""
+
 import asyncio
-
+# Import inspect to retrieve database schema information.
 from sqlalchemy import inspect
-
+# Import SQLAlchemy Base class.
+# All application ORM models should inherit from this Base.
 from app.db.base import Base
 from app.db.database import engine
 
-# Import models to register tables in Base.metadata
+# Import application models to register their tables in Base.metadata.
+# Without importing models, SQLAlchemy may not know which tables to create.
 import app.models
 
 

@@ -1,6 +1,7 @@
 """
 Analyze investment allocation and diversification strategies based on the customer's risk profile
 and investment goals.
+Portfolio Agent analyzes how different investments could be combined and explains the trade-offs.
 """
 
 
@@ -63,3 +64,14 @@ async def portfolio_agent(state):
                         }
                     },
             }
+
+
+"""
+6. Is a Portfolio Agent always required?
+No. It depends on the user's question.
+- "What is an ETF?" — Knowledge Agent and Response Agent may be sufficient.
+- "What are the risks of stock investing?" — Knowledge Agent and Risk Agent may be useful.
+- "Analyze my existing investment portfolio." — Portfolio Agent is important.
+- "How should I invest £10,000?" — Portfolio Agent may help develop scenarios, 
+but a regulated suitability process is necessary before providing a personal recommendation.
+"""

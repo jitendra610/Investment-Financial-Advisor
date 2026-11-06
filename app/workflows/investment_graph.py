@@ -1,10 +1,14 @@
 from langgraph.graph import StateGraph, START, END
 
 from app.agents.state import InvestmentState
+from app.agents. customer_agent import customer_agent
+from app.agents.knowledge_agent import knowledge_agent
+'''
 from app.agents.data_agents import (
     customer_agent,
     knowledge_agent,
 )
+'''
 from app.agents.query_agent import query_agent
 from app.agents.risk_agent import risk_agent
 from app.agents.portfolio_agent import portfolio_agent

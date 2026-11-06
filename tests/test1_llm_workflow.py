@@ -1,7 +1,7 @@
 import asyncio
 import json
 from dotenv import load_dotenv
-
+import time
 load_dotenv()
 
 from app.workflows.investment_graph import investment_graph
@@ -12,7 +12,7 @@ async def main():
         {
             "customer_id": "CUST-003",
             "query": (
-                "I have aggressive risk tolerance but "
+                "hey I want do study on my investmnt can you suggest best portfolio"
                 "moderate risk capacity. "
                 "What investment options should I consider?"
             ),
@@ -40,4 +40,8 @@ async def main():
 
 
 if __name__ == "__main__":
+    #calculate time taken to run the test
+    start_time = time.time()
     asyncio.run(main())
+    end_time = time.time()
+    print(f"\nTest completed in {end_time - start_time:.2f} seconds")
