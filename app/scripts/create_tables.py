@@ -10,9 +10,12 @@ import app.models
 
 
 async def create_tables():
+    # Open a database connection and begin a transaction.
     async with engine.begin() as conn:
 
         # Create only missing tables
+        # run_sync() allows synchronous SQLAlchemy metadata
+        # operations to execute using an async connection
         await conn.run_sync(Base.metadata.create_all)
 
         # Verify tables
@@ -31,6 +34,8 @@ async def main():
     try:
         await create_tables()
     finally:
+        # Close the engine's pooled database connections.
+        # Runs even if table creation raises an exception.
         await engine.dispose()
 
 

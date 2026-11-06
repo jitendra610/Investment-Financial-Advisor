@@ -1,7 +1,3 @@
-from app.rag.retrieval import hybrid_search
-from app.rag.reranker import rerank
-from app.agents.state import InvestmentState
-
 '''
 def knowledge_agent(state: InvestmentState) -> dict:
     candidates = hybrid_search(state['query'], top_k=8)
@@ -10,9 +6,17 @@ def knowledge_agent(state: InvestmentState) -> dict:
                           'sources': sorted({x['source'] for x in selected})}}
 '''
 
+# Import hybrid search function from the RAG retrieval module.
+from app.rag.retrieval import hybrid_search
+
+#from app.rag.reranker import rerank
+from app.agents.state import InvestmentState
+import asyncio
+
+
 async def knowledge_agent(state):
-    # Adapt this import to the retriever from Lesson 3.
-    # Execute synchronous retrieval in a separate thread
+    # Execute the synchronous hybrid_search() function
+    # in a separate thread to avoid blocking the event loop.
     results = await asyncio.to_thread(
         hybrid_search,
         state["query"],

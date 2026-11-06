@@ -16,8 +16,10 @@ def utc_now():
 
 
 class Customer(Base):
+    # Database table name.
     __tablename__ = "customers"
 
+    # Primary key column.
     id: Mapped[str] = mapped_column(String(30), primary_key=True)
     full_name: Mapped[str] = mapped_column(String(150))
     age: Mapped[int] = mapped_column(Integer)

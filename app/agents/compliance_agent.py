@@ -1,16 +1,10 @@
-from app.agents.state import InvestmentState
+"""
+Check regulatory and business requirements for investment recommendations and guidance.
+Portfolio Agent analyzes how different investments could be combined and explains the trade-offs.
+"""
 
-'''
-def compliance_agent(state: InvestmentState) -> dict:
-    reasons = list(state['risk']['reasons'])
-    if state['intent'] == 'personal':
-        reasons.append('Personalized investment request requires qualified human review')
-    if not state['knowledge']['chunks']:
-        reasons.append('No supporting knowledge retrieved')
-    review = bool(reasons)
-    return {'compliance': {'approved_for_education': not review,
-                           'human_review_required': review, 'reasons': reasons}}
-'''
+
+from app.agents.state import InvestmentState
 
 from app.prompts.manager import get_prompt
 from app.prompts import load_system_prompt
@@ -79,3 +73,15 @@ async def compliance_agent(state):
 
     return {"compliance": review}
 
+
+
+
+"""
+6. Is a Portfolio Agent always required?
+No. It depends on the user's question.
+- "What is an ETF?" — Knowledge Agent and Response Agent may be sufficient.
+- "What are the risks of stock investing?" — Knowledge Agent and Risk Agent may be useful.
+- "Analyze my existing investment portfolio." — Portfolio Agent is important.
+- "How should I invest £10,000?" — Portfolio Agent may help develop scenarios, 
+but a regulated suitability process is necessary before providing a personal recommendation.
+"""

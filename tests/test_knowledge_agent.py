@@ -1,5 +1,5 @@
 import asyncio
-from app.agents.data_agents import knowledge_agent
+from app.agents.knowledge_agent import knowledge_agent
 
 
 async def main():

@@ -1,8 +1,3 @@
-import os
-from langchain_openai import ChatOpenAI
-from app.agents.state import InvestmentState
-from app.prompts import load_system_prompt
-
 '''
 
 def response_agent(state: InvestmentState) -> dict:
@@ -24,12 +19,18 @@ def review_response(state: InvestmentState) -> dict:
             'status': 'needs_review'}
 
 '''
-from app.prompts.manager import get_prompt
+# Import function to retrieve an agent-specific system prompt
 from app.prompts.manager import get_prompt
 import asyncio
 import json
-from app.agents.llm import llm
+from app.agents.llm import llm # Import the configured LLM instance.
 from app.prompts import load_system_prompt
+import os
+from langchain_openai import ChatOpenAI
+# Import the LangGraph state schema.
+# Defines data shared between different agents.
+from app.agents.state import InvestmentState
+
 
 async def load_system_prompt(agent_name: str):
     prompt = await asyncio.to_thread(
@@ -38,6 +39,7 @@ async def load_system_prompt(agent_name: str):
     )
     return prompt
 
+# Helper function to convert Python data into a JSON string.
 def as_json(value):
     return json.dumps(value, default=str)
 
@@ -60,7 +62,7 @@ async def response_agent(state):
     ])
 
     return {
-        "response": result.content,
-        "status": "completed",
-        "response_prompt_version": prompt.version
+        "response": result.content,  # Store the final LLM-generated response.
+        "status": "completed",       # Mark the response generation process as completed.
+        "response_prompt_version": prompt.version  # Record the system prompt version used.
     }

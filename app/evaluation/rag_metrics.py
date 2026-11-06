@@ -9,6 +9,13 @@ def normalize_source(value):
     return os.path.basename(str(value).replace("\\", "/"))
 
 
+# Evaluate the retrieval performance of the RAG system.
+#
+# top_k: Maximum number of documents to retrieve per query.
+#
+# Returns:
+# List of dictionaries containing evaluation metrics.
+
 def evaluate_rag(top_k=5):
     scores = []
 
@@ -42,6 +49,9 @@ def evaluate_rag(top_k=5):
             ),
             None,
         )
+
+        # Calculate Reciprocal Rank.
+        # Measures how early the first relevant result appears.
         reciprocal_rank = 1 / first_rank if first_rank else 0
 
         scores.append({
@@ -60,6 +70,9 @@ if __name__ == "__main__":
 
     results = evaluate_rag()
 
+
+    # Print evaluation results in formatted JSON.
+    # indent=4 improves readability.
     print(json.dumps(results, indent=4))
 
     for metric in (
