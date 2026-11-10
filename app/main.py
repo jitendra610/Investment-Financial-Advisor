@@ -1,8 +1,16 @@
 from fastapi import FastAPI
+import logging
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.investment import router as investment_router
 
+from app.core.logging_config import setup_logging
+
+# Initialize logging.
+log_file = setup_logging()
+
+logger = logging.getLogger(__name__)
+logger.info("FastAPI application starting")
 
 app = FastAPI(
     title="Investment Advisor API",

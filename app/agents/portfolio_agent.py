@@ -20,6 +20,10 @@ from app.prompts.manager import get_prompt
 # Load the active system prompt for a given agent.
 from app.prompts import load_system_prompt
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 async def load_system_prompt(agent_name: str):
     # Run synchronous get_prompt() in a separate thread
@@ -37,35 +41,44 @@ def as_json(value):
 
 # Portfolio Agent responsible for analyzing investment portfolios.
 async def portfolio_agent(state):
-    model = llm.with_structured_output(PortfolioAnalysis)
+    logger.info("Portfolio Agent started")
 
-    # Retrieve the active Portfolio Agent system prompt.
-    prompt = await load_system_prompt("portfolio")
+    try:
 
-    # Invoke the LLM asynchronously.
-    result = await model.ainvoke([
-        (       "system", prompt.content),
-        (
-            "human",
-            as_json({
-                "portfolio": state["query"],
-                "customer": state["customer"],
-                "risk": state["risk"],
-                "knowledge": state["knowledge"],
-            }),
-        ),
-    ])
+        model = llm.with_structured_output(PortfolioAnalysis)
 
-    return {"portfolio": result.model_dump(),
-            "portfolio_prompt_version": {
-                        "portfolio": {
-                            "id": prompt.id,
-                            "version": prompt.version,
-                        }
-                    },
-            }
+        # Retrieve the active Portfolio Agent system prompt.
+        prompt = await load_system_prompt("portfolio")
 
+        # Invoke the LLM asynchronously.
+        result = await model.ainvoke([
+            (       "system", prompt.content),
+            (
+                "human",
+                as_json({
+                    "portfolio": state["query"],
+                    "customer": state["customer"],
+                    "risk": state["risk"],
+                    "knowledge": state["knowledge"],
+                }),
+            ),
+        ])
 
+        logger.info("Portfolio Agent completed")
+        return {"portfolio": result.model_dump(),
+                "portfolio_prompt_version": {
+                            "portfolio": {
+                                "id": prompt.id,
+                                "version": prompt.version,
+                            }
+                        },
+                }
+
+    except Exception as e:
+        logger.error(f"Portfolio Agent failed: {e}")
+        raise
+
+    
 """
 6. Is a Portfolio Agent always required?
 No. It depends on the user's question.

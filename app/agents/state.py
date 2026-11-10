@@ -25,4 +25,6 @@ class InvestmentState(TypedDict):
     status: NotRequired[str] # status of the response generation process
     response_prompt_version: NotRequired[int] # Version of the system prompt used for response generation
 
+    
+
       

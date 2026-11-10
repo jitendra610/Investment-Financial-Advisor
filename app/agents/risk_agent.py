@@ -12,6 +12,10 @@ from app.agents.llm import llm
 # Ensures the LLM response follows the RiskAnalysis model.
 from app.agents.schemas import RiskAnalysis
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Load the active system prompt for a specific agent.
 async def load_system_prompt(agent_name: str):
@@ -28,30 +32,36 @@ def as_json(value):
 
 # Risk Agent responsible for evaluating customer investment risk.
 async def risk_agent(state):
-    model = llm.with_structured_output(RiskAnalysis)
-    prompt = await load_system_prompt("risk")
+    logger.info("Risk Agent started")
+    try:
+        model = llm.with_structured_output(RiskAnalysis)
+        prompt = await load_system_prompt("risk")
 
-    # Invoke the LLM asynchronously.
-    result = await model.ainvoke([
-        ("system", prompt.content),
-        ("human",
-            as_json({
-                "customer": state["customer"],
-                "knowledge": state["knowledge"],
-                "question": state["query"],
-            }),
-        ),
-    ])
-
-    # Return the Risk Agent's output to LangGraph state.
-    return {
-        # Convert Pydantic RiskAnalysis object into dictionary.
-        # Stores the structured investment risk assessment.
-        "risk": result.model_dump(),
-        "risk_prompt_version": {
-            "risk": {
-                "id": prompt.id,
-                "version": prompt.version,
+        # Invoke the LLM asynchronously.
+        result = await model.ainvoke([
+            ("system", prompt.content),
+            ("human",
+                as_json({
+                    "customer": state["customer"],
+                    "knowledge": state["knowledge"],
+                    "question": state["query"],
+                }),
+            ),
+        ])
+        logger.info("Risk Agent completed")
+        # Return the Risk Agent's output to LangGraph state.
+        return {
+            # Convert Pydantic RiskAnalysis object into dictionary.
+            # Stores the structured investment risk assessment.
+            "risk": result.model_dump(),
+            "risk_prompt_version": {
+                "risk": {
+                    "id": prompt.id,
+                    "version": prompt.version,
+                    }
+                    },
                 }
-                },
-            }
+
+    except Exception as e:
+        logger.error(f"Risk Agent failed: {e}")
+        raise

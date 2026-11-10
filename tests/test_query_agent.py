@@ -1,7 +1,12 @@
 import asyncio
 
 from app.agents.query_agent import query_agent
+from app.core.logging_config import setup_logging
 
+# Initialize logging before executing Query Agent.
+log_file = setup_logging()
+
+print("Log file exists:", log_file.exists())
 
 async def test_query_agent():
 

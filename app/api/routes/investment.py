@@ -1,16 +1,16 @@
 """
 Investment Analysis API Router
 
-Purpose:
-1. Receive investment analysis requests from users.
-2. Authenticate users using JWT tokens.
-3. Verify whether users can access the requested customer.
-4. Execute the LangGraph multi-agent investment workflow.
-5. Check compliance and human-review requirements.
-6. Return a structured investment analysis response.
-7. Handle workflow errors securely.
+Supports:
+1. JWT authentication.
+2. Customer-level authorization.
+3. Dynamic LangGraph routing.
+4. General and educational questions.
+5. Customer-specific financial analysis.
+6. Clarification requests.
+7. Mandatory compliance checks for regulated advice.
+8. Secure error handling.
 """
-
 
 import logging # Import logging to record application errors.
 # Import FastAPI components.
@@ -37,7 +37,7 @@ from app.schemas.investment_api import (
     InvestmentAnalysisResponse,
 )
 # Import compiled LangGraph investment analysis workflow.
-from app.workflows.investment_graph import investment_graph
+from app.workflows.investment_graph1 import investment_graph
 
 
 logger = logging.getLogger(__name__)
@@ -65,8 +65,10 @@ async def analyze_investment(
     user: APIUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_auth_session),
 ):
-    
-     # --------------------------------------------------
+
+
+    logger.info("Investment API request received")
+    # --------------------------------------------------
     # STEP 1: CUSTOMER AUTHORIZATION
     # --------------------------------------------------
 
@@ -75,25 +77,33 @@ async def analyze_investment(
     #
     # Authorization must happen before executing any agent.
     # Unauthorized requests should raise an HTTP exception.
-    await require_customer_access(
-        request.customer_id,
-        user,
-        session,
-    )
-    # --------------------------------------------------
-    # STEP 2: EXECUTE MULTI-AGENT WORKFLOW
-    # --------------------------------------------------
+    if request.customer_id is not None:
+        await require_customer_access(
+            request.customer_id,
+            user,
+            session,
+        )
+
+        logger.info(
+            "Customer authorization successful"
+        )
+    # --------------------------------------------
+    # STEP 2: EXECUTE LANGGRAPH WORKFLOW
+    # --------------------------------------------
 
     try:
-        # Invoke the compiled LangGraph workflow asynchronously.
+
         result = await investment_graph.ainvoke(
             {
-                "customer_id": request.customer_id,
                 "query": request.query,
+                "customer_id": request.customer_id,
             },
             config={
                 "run_name": "investment-analysis-api",
-                "tags": ["fastapi", "investment-advisor"],
+                "tags": [
+                    "fastapi",
+                    "investment-advisor",
+                ],
                 "metadata": {
                     "environment": "development",
                 },
@@ -101,48 +111,136 @@ async def analyze_investment(
         )
 
     except Exception:
-        logger.exception("Investment workflow failed")
+
+        logger.exception(
+            "Investment workflow execution failed"
+        )
+
         raise HTTPException(
             status_code=500,
-            detail="Investment analysis could not be completed",
+            detail=(
+                "Investment analysis could not "
+                "be completed"
+            ),
         )
 
-    # --------------------------------------------------
-    # STEP 3: EXTRACT COMPLIANCE RESULT
-    # --------------------------------------------------
+    # --------------------------------------------
+    # STEP 3: EXTRACT WORKFLOW RESULT
+    # --------------------------------------------
 
-    # Retrieve compliance analysis from workflow state.
-    # Use empty dictionary if compliance is missing or None.
-
+    status_value = result.get("status")
+    response_text = result.get("response")
     compliance = result.get("compliance") or {}
 
-      # --------------------------------------------------
-    # STEP 4: CHECK HUMAN REVIEW REQUIREMENT
-    # --------------------------------------------------
+    requires_compliance = result.get(
+        "requires_compliance",
+        False,
+    )
 
-    # If human_review_required is True, block direct guidance.
-    #
-    # Default is True when the field is missing.
-    # This is a fail-closed approach.
+    logger.info(
+        "Workflow completed | status=%s | compliance_required=%s",
+        status_value,
+        requires_compliance,
+    )
 
-    if compliance.get("human_review_required", True):
-        # Fail closed if the graph returns an inconsistent status.
-        status_value = "needs_review"
-        response_text = (
-            "This request requires review by an appropriately "
-            "qualified adviser or compliance reviewer before "
-            "personalized investment guidance can be provided."
+    # --------------------------------------------
+    # STEP 4: HANDLE CLARIFICATION
+    # --------------------------------------------
+
+    if result.get("requires_clarification"):
+
+        questions = result.get(
+            "clarification_questions",
+            [],
         )
+
+        status_value = "needs_clarification"
+
+        response_text = (
+            "\n".join(questions)
+            or "Please provide additional information."
+        )
+
+        logger.info(
+            "Clarification required | questions=%d",
+            len(questions),
+        )
+
+    # --------------------------------------------
+    # STEP 5: HANDLE COMPLIANCE
+    # --------------------------------------------
+
+    elif requires_compliance:
+
+        # Compliance is mandatory for this request.
+        # Missing or incomplete compliance results
+        # must not permit personalized guidance.
+
+        if (
+            not compliance
+            or compliance.get(
+                "human_review_required"
+            ) is not False
+            or compliance.get("compliant") is not True
+        ):
+
+            status_value = "needs_review"
+
+            response_text = (
+                "This request requires review by "
+                "an appropriately qualified adviser "
+                "before personalized investment "
+                "guidance can be provided."
+            )
+
+            logger.warning(
+                "Investment response held for review"
+            )
+
+        elif status_value not in {
+            "completed",
+            "needs_review",
+        }:
+
+            # Unexpected workflow status.
+            status_value = "needs_review"
+            response_text = (
+                "The investment analysis requires "
+                "additional review."
+            )
+
+    # --------------------------------------------
+    # STEP 6: HANDLE NON-ADVISORY RESPONSES
+    # --------------------------------------------
+
     else:
-        status_value = result.get("status", "needs_review")
-        response_text = result.get("response")
 
+        # Do not automatically require compliance
+        # for ordinary educational questions.
 
-    # --------------------------------------------------
-    # STEP 5: RETURN STRUCTURED API RESPONSE
-    # --------------------------------------------------
+        if status_value != "completed":
 
-    # Convert workflow output into the Pydantic response schema.
+            logger.error(
+                "Unexpected workflow status: %s",
+                status_value,
+            )
+
+            raise HTTPException(
+                status_code=500,
+                detail="Workflow returned an invalid status",
+            )
+
+        if not response_text:
+
+            raise HTTPException(
+                status_code=500,
+                detail="Workflow returned an empty response",
+            )
+
+    # --------------------------------------------
+    # STEP 7: RETURN STRUCTURED RESPONSE
+    # --------------------------------------------
+
     return InvestmentAnalysisResponse(
         customer_id=request.customer_id,
         status=status_value,

@@ -52,3 +52,44 @@ class ComplianceAnalysis(BaseModel):
     human_review_required: bool
     violations: list[str]
     explanation: str
+
+
+class QueryPlan(BaseModel):
+
+    # Classification of the user's request.
+    intent: Literal[
+        "general",
+        "education",
+        "market_research",
+        "customer_profile",
+        "financial_analysis",
+        "portfolio_analysis",
+        "personal_advice",
+        "unrelated",
+    ]
+
+    # Whether the question contains enough information.
+    is_complete: bool = True
+
+    # Whether the user needs to provide more details.
+    requires_clarification: bool = False
+
+    # Information needed to answer the question.
+    required_information: list[str] = Field(
+        default_factory=list
+    )
+
+    # Planner's proposed agents.
+    selected_agents: list[
+        Literal[
+            "customer_agent",
+            "knowledge_agent",
+            "risk_agent",
+            "portfolio_agent",
+            "compliance_agent",
+            "response_agent",
+        ]
+    ] = Field(default_factory=list)
+
+    # Short explanation of routing decision.
+    reasoning: str = ""
