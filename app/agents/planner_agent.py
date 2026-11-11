@@ -131,11 +131,12 @@ def build_execution_plan(
 
     return execution_plan
 
-
+"""
 async def planner_agent(state):
 
     plan = state["query_plan"]
     intent = plan["intent"]
+
 
     logger.info(
         "Planner started | intent=%s",
@@ -211,6 +212,104 @@ async def planner_agent(state):
         "requires_portfolio": requires_portfolio,
         "requires_compliance": requires_compliance,
     }
+"""
+async def planner_agent(state):
+
+    plan = state["query_plan"]
+    intent = plan["intent"]
+
+    logger.info("Planner started | intent=%s", intent)
+
+    # 1. Select permitted agents
+    selected = INTENT_AGENTS[intent].copy()
+
+    if intent == "portfolio_analysis":
+        proposed = plan.get("selected_agents", [])
+
+        if "knowledge_agent" in proposed:
+            selected.append("knowledge_agent")
+
+    selected = list(dict.fromkeys(selected))
+
+    # 2. Customer information availability
+    customer_id = state.get("customer_id")
+
+    needs_customer = "customer_agent" in selected
+    missing_customer = needs_customer and not customer_id
+
+    # 3. Query Agent clarification questions
+    questions = list(
+        plan.get("required_information") or []
+    )
+
+    # Remove ONLY customer-ID requests already satisfied
+    # by the workflow state.
+    if customer_id:
+        customer_id_phrases = {
+            "customer id",
+            "customer identifier",
+        }
+
+        questions = [
+            q for q in questions
+            if not any(
+                phrase in q.lower()
+                for phrase in customer_id_phrases
+            )
+        ]
+
+    # 4. Add missing customer ID question
+    if missing_customer:
+        questions.append(
+            "Please provide your customer ID."
+        )
+
+    # 5. Determine clarification
+    # Recalculate from unresolved requirements.
+    needs_clarification = bool(questions)
+
+    # Preserve an explicit incomplete decision if the
+    # Query Agent has not supplied a specific question.
+    if (
+        not needs_clarification
+        and (
+            plan.get("requires_clarification", False)
+            or not plan.get("is_complete", True)
+        )
+        and not customer_id
+    ):
+        needs_clarification = True
+        questions.append(
+            "Could you provide more details about your request?"
+        )
+
+    # 6. Agent dependencies
+    requires_portfolio = intent in {
+        "portfolio_analysis",
+        "personal_advice",
+    }
+
+    requires_risk = requires_portfolio
+
+    requires_compliance = intent in {
+        "personal_advice",
+        "portfolio_analysis",
+    }
+
+    logger.info(
+        "Planner completed | agents=%s | clarification=%s",
+        selected,
+        needs_clarification,
+    )
+
+    return {
+        "selected_agents": selected,
+        "requires_clarification": needs_clarification,
+        "clarification_questions": questions,
+        "requires_risk": requires_risk,
+        "requires_portfolio": requires_portfolio,
+        "requires_compliance": requires_compliance,
+    }
 
 # ----------------------------------------
 # 3. PLANNER AGENT
@@ -225,6 +324,22 @@ async def planner_agent(state):
     start_time = time.perf_counter()
 
     logger.info("Planner Agent started")
+
+    plan = state["query_plan"]
+    intent = plan["intent"]
+
+    print("\n========== PLANNER DEBUG ==========")
+    print("Customer ID:", state.get("customer_id"))
+    print("Customer Access Verified:",
+          state.get("customer_access_verified"))
+    print("Intent:", intent)
+    print("Query Plan:", plan)
+    print("Required Information:",
+          plan.get("required_information"))
+    print("Is Complete:", plan.get("is_complete"))
+    print("Requires Clarification:",
+          plan.get("requires_clarification"))
+
 
     try:
 
@@ -359,11 +474,22 @@ async def planner_agent(state):
 
         duration = time.perf_counter() - start_time
 
+        logger.info("QUERY PLAN: %s", query_plan)
+        logger.info("INTENT: %s", intent)
+        logger.info("CUSTOMER ID: %s", state.get("customer_id"))
+        logger.info("SELECTED AGENTS: %s", selected_agents)
+        logger.info("MISSING CUSTOMER ID: %s", missing_customer_id)
         logger.info(
-            "Planner completed | intent=%s | agents=%s | duration=%.3fs",
-            intent,
-            selected_agents,
-            duration,
+            "LLM REQUIRES CLARIFICATION: %s",
+            query_plan.get("requires_clarification")
+        )
+        logger.info(
+            "QUERY COMPLETE: %s",
+            query_plan.get("is_complete")
+        )
+
+        logger.info(
+            "Planner completed | duration=%.3fs", duration,
         )
 
         logger.info(

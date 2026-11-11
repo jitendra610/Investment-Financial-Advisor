@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from app.workflows.investment_graph import investment_graph
+from app.workflows.investment_graph1 import investment_graph
 
 
 def get_contexts(knowledge: dict) -> list[str]:

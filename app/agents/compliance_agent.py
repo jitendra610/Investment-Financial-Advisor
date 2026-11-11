@@ -76,7 +76,7 @@ async def compliance_agent(state):
 
     # Rule 2: Check whether the customer requests
     # personalized investment guidance.
-    if state["intent"]["intent"] == "personal":
+    if state.get("intent") == "personal_advice":
         review["human_review_required"] = True
         review["compliant"] = False
         review["violations"].append(

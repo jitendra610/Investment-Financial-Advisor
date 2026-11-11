@@ -12,12 +12,22 @@ Supports:
 8. Secure error handling.
 """
 
+from app.guardrails.input_guardrail import check_input
+from app.guardrails.output_guardrail import (
+    check_output,
+    REVIEW_MESSAGE,
+)
+
+from app.guardrails.pii_masker import mask_pii
+
 import logging # Import logging to record application errors.
+
 # Import FastAPI components.
 # APIRouter: Defines API endpoints.
 # Depends: Injects authentication and database dependencies.
 # HTTPException: Returns HTTP errors.
 from fastapi import APIRouter, Depends, HTTPException
+
 # Import asynchronous SQLAlchemy session.
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,11 +36,13 @@ from app.api.dependencies import (
     get_current_user, # Validate JWT token and retrieve authenticated user.
     require_customer_access, # Verify whether user has access to requested customer.
 )
+
 # Import authentication database session dependency.
 from app.auth.database import get_auth_session
 
 # Import APIUser ORM model.
 from app.models.api_user import APIUser
+
 # Import Pydantic request and response schemas.
 from app.schemas.investment_api import (
     InvestmentAnalysisRequest,
@@ -87,15 +99,50 @@ async def analyze_investment(
         logger.info(
             "Customer authorization successful"
         )
+
     # --------------------------------------------
-    # STEP 2: EXECUTE LANGGRAPH WORKFLOW
+    # STEP 2: INPUT GUARDRAIL
+    # --------------------------------------------
+
+    # Validate the user's query before executing
+    # the LangGraph multi-agent workflow.
+    input_result = check_input(request.query)
+
+    # Reject requests that fail input validation.
+    if not input_result.allowed:
+
+        logger.warning(
+            "Input guardrail blocked request | violations=%s",
+            input_result.violations,
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=input_result.reason,
+        )
+
+    logger.info("Input guardrail validation passed")
+    # Mask PII before passing text to LangGraph.
+    pii_result = mask_pii(request.query)
+
+    safe_query = pii_result["masked_text"]
+
+    logger.info(
+        "PII masking completed | entities=%d",
+        len(pii_result["entities"]),
+    )
+
+    
+
+    # --------------------------------------------
+    # STEP 3: EXECUTE LANGGRAPH WORKFLOW
     # --------------------------------------------
 
     try:
 
         result = await investment_graph.ainvoke(
             {
-                "query": request.query,
+                "query": safe_query,
                 "customer_id": request.customer_id,
             },
             config={
@@ -125,7 +172,7 @@ async def analyze_investment(
         )
 
     # --------------------------------------------
-    # STEP 3: EXTRACT WORKFLOW RESULT
+    # STEP 4: EXTRACT WORKFLOW RESULT
     # --------------------------------------------
 
     status_value = result.get("status")
@@ -144,7 +191,7 @@ async def analyze_investment(
     )
 
     # --------------------------------------------
-    # STEP 4: HANDLE CLARIFICATION
+    # STEP 5: HANDLE CLARIFICATION
     # --------------------------------------------
 
     if result.get("requires_clarification"):
@@ -167,53 +214,84 @@ async def analyze_investment(
         )
 
     # --------------------------------------------
-    # STEP 5: HANDLE COMPLIANCE
+    # STEP 6: HANDLE COMPLIANCE
     # --------------------------------------------
-
     elif requires_compliance:
 
-        # Compliance is mandatory for this request.
-        # Missing or incomplete compliance results
-        # must not permit personalized guidance.
+        # Compliance approval must be explicit.
+        compliance_approved = (
+            bool(compliance)
+            and compliance.get("compliant") is True
+            and compliance.get("human_review_required") is False
+            )
 
-        if (
-            not compliance
-            or compliance.get(
-                "human_review_required"
-            ) is not False
-            or compliance.get("compliant") is not True
-        ):
+        # Return the generated response only when:
+        # 1. Compliance explicitly approves it.
+        # 2. The workflow status is completed.
+        if not compliance_approved or status_value != "completed":
 
             status_value = "needs_review"
-
-            response_text = (
-                "This request requires review by "
-                "an appropriately qualified adviser "
-                "before personalized investment "
-                "guidance can be provided."
-            )
+            response_text = REVIEW_MESSAGE
 
             logger.warning(
                 "Investment response held for review"
             )
 
-        elif status_value not in {
-            "completed",
-            "needs_review",
-        }:
-
-            # Unexpected workflow status.
-            status_value = "needs_review"
-            response_text = (
-                "The investment analysis requires "
-                "additional review."
+        else:
+            logger.info(
+                "Investment response passed compliance checks"
             )
 
-    # --------------------------------------------
-    # STEP 6: HANDLE NON-ADVISORY RESPONSES
-    # --------------------------------------------
+            """
+            elif requires_compliance:
+
+                # Compliance is mandatory for this request.
+                # Missing or incomplete compliance results
+                # must not permit personalized guidance.
+
+                if (not compliance or compliance.get(
+                        "human_review_required"
+                    ) is not False
+                    or compliance.get("compliant") is not True
+                ):
+
+                    status_value = "needs_review"
+
+                    response_text = (
+                        "This request requires review by "
+                        "an appropriately qualified adviser "
+                        "before personalized investment "
+                        "guidance can be provided."
+                    )
+
+                    logger.warning(
+                        "Investment response held for review"
+                    )
+                elif status_value != "completed":
+                    status_value = "needs_review"
+                
+                    response_text = REVIEW_MESSAGE
+
+                
+                elif status_value not in {
+                    "completed",
+                    "needs_review",
+                }:
+
+                    # Unexpected workflow status.
+                    status_value = "needs_review"
+                    response_text = (
+                        "The investment analysis requires "
+                        "additional review."
+                    )
+                """
+            
+            # --------------------------------------------
+            # STEP 7: HANDLE NON-ADVISORY RESPONSES
+            # --------------------------------------------
 
     else:
+    
 
         # Do not automatically require compliance
         # for ordinary educational questions.
@@ -238,7 +316,65 @@ async def analyze_investment(
             )
 
     # --------------------------------------------
-    # STEP 7: RETURN STRUCTURED RESPONSE
+    # STEP 8: OUTPUT GUARDRAIL
+    # --------------------------------------------
+
+    output_result = check_output(
+        response=response_text,
+        requires_compliance=requires_compliance,
+        compliance=compliance,
+        status=status_value,
+    )
+
+    logger.info(
+        "Output guardrail | action=%s | violations=%s",
+        output_result.action,
+        output_result.violations,
+    )
+
+    # CASE 1: Human review is required.
+    if output_result.action == "review":
+
+        status_value = "needs_review"
+
+        # Never return the original generated
+        # investment recommendation.
+        response_text = REVIEW_MESSAGE
+
+        logger.warning(
+            "Output guardrail held response for review"
+        )
+
+    # CASE 2: Output contains sensitive information
+    # or fails validation.
+    elif not output_result.allowed:
+
+        logger.error(
+            "Output guardrail blocked response | violations=%s",
+            output_result.violations,
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "The generated response failed "
+                "output validation."
+            ),
+        )
+
+    # CASE 3: Output is safe.
+    else:
+
+        logger.info(
+            "Output guardrail validation passed"
+        )
+
+    pii_result = mask_pii(response_text)
+
+    response_text = pii_result["masked_text"]
+
+    # --------------------------------------------
+    # STEP 9: RETURN STRUCTURED RESPONSE
     # --------------------------------------------
 
     return InvestmentAnalysisResponse(

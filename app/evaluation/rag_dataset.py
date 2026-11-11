@@ -7,11 +7,12 @@ RAG_TEST_CASES = [
     {
         "id": "RAG002",
         "query": "What are the benefits of diversification?",
-        "relevant_sources": ["investment_benefits.md"],
+        "relevant_sources": ["diversification_guidelines.txt"],
     },
     {
         "id": "RAG003",
         "query": "What suitability checks are required?",
-        "relevant_sources": ["compliance_policy.md"],
+        "relevant_sources": ["compliance_policy.txt"],
     },
+    
 ]

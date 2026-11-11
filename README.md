@@ -1,146 +1,253 @@
-# UK Investment Advisor — Agentic AI System
+# Investment Advisor — Agentic AI with Dynamic LangGraph Routing
 
-**Technical architecture and implementation summary**  
-**Date:** 4 November 2026  
-**Scope:** Local development and components evidenced by implementation discussions. This is not a production deployment or a regulatory approval.
+> **Project status:** Local development / integration testing. This README documents the latest architecture and observed behavior from development discussions. Some components are implemented or exercised locally; others are design targets. **Do not interpret this repository as a production-ready or FCA-authorized investment advice service.**
 
-## 1. Project overview
+## Overview
 
-The project is a UK-focused investment guidance prototype built with Python, LangGraph, FastAPI and PostgreSQL. Its purpose is to combine customer context and a retrieval-based knowledge base with specialized agents that analyze investment queries, assess risk, prepare educational analysis and apply compliance checks.
+Investment Advisor is a UK-focused, multi-agent AI application designed to interpret investment questions, retrieve supporting policy and product knowledge, obtain authorized customer context, assess risk, propose portfolio analysis, validate compliance, and generate explainable responses. It uses **LangGraph for orchestration**, **LangChain/OpenAI for structured LLM tasks**, **PostgreSQL for customer and prompt data**, and **pgvector plus lexical retrieval for RAG**.
 
-The system is designed to distinguish general investment education from customer-specific guidance and to return a `needs_review` result when suitability or compliance is uncertain. This is an application-level escalation status, **not** a completed human-review queue.
+The key architectural update is **dynamic routing**: not every query should execute every agent. The Query Agent analyzes the request; a deterministic Planner maps the intent to permitted agents, checks missing requirements, and decides whether to request clarification. Customer-specific routes require separate authorization; a customer ID by itself is not proof of access.
 
-## 2. Implemented architecture
+## Architecture at a glance
 
 ```mermaid
 flowchart TD
-    U[API client / Swagger] --> API[FastAPI REST API]
-    API --> AUTH[JWT authentication and customer access check]
-    AUTH --> G[LangGraph workflow]
-    G --> Q[Query analysis]
-    Q --> C[Customer context]
-    Q --> K[Knowledge retrieval / RAG]
-    C --> R[Risk analysis]
-    K --> R
-    R --> P[Portfolio analysis]
-    P --> CO[Compliance validation]
-    CO -->|Approved| A[Response]
-    CO -->|Review required| H[needs_review result]
-    C --> DB[(PostgreSQL customer data)]
-    K --> KB[(PostgreSQL / pgvector knowledge)]
-    Q --> PR[(PostgreSQL prompt registry)]
+    U[User / Client] --> API[FastAPI: validation + JWT authentication]
+    API --> AUTH[Customer access authorization]
+    AUTH --> Q[Query Agent: structured query plan]
+    Q --> P[Planner Agent: deterministic dynamic routing]
+    P -->|Missing information / authorization| CL[Clarification or access-required response]
+    P -->|General / unrelated| RESP[Response Agent]
+    P -->|Knowledge needed| K[Knowledge Agent / RAG]
+    P -->|Customer context needed and authorized| C[Customer Agent]
+    K --> R[Risk Agent, when required]
+    C --> R
+    R --> PF[Portfolio Agent, when required]
+    PF --> CO[Compliance Agent, when required]
+    K --> RESP
+    C --> RESP
+    R --> RESP
+    CO -->|Approved path| RESP
+    CO -->|Review required| HR[Human review / needs_review]
+    RESP --> OUT[Final state + response]
+    CL --> OUT
+    HR --> OUT
 ```
 
-The graph uses a query-analysis step, parallel customer and knowledge retrieval, and subsequent risk, portfolio and compliance steps. A prior local workflow run completed with `status="needs_review"` for a sample customer with aggressive risk tolerance and moderate risk capacity. Subsequent refactoring required import fixes; the current end-to-end test status has not been independently reverified.
+This diagram shows *possible* paths and dependencies, not unconditional execution order. Parallel Customer/Knowledge retrieval and exact conditional edges depend on the current compiled graph. In particular, **the Planner must not allow customer-data access solely because an LLM selected an agent**.
 
-## 3. Agent responsibilities
-
-| Component | Function | Output / integration |
-|---|---|---|
-| Query agent | Interprets investment intent using a versioned prompt and LLM structured output | `intent`, prompt ID/version |
-| Customer agent | Retrieves customer profile and financial context from PostgreSQL | Customer context |
-| Knowledge agent | Retrieves relevant investment/policy text using RAG | Context and source metadata |
-| Risk agent | Examines customer risk tolerance, capacity and suitability factors | Structured risk analysis |
-| Portfolio agent | Produces educational investment analysis | Portfolio analysis |
-| Compliance agent | Checks suitability, claims and need for escalation | Compliance decision and `human_review_required` |
-| Response / review branch | Returns an answer or review-required message | `response`, `status` |
-
-The code uses LangChain `ChatOpenAI` and Pydantic structured output. Consistent state shapes between agents are essential; in particular, `intent` should not alternate between a string and a dictionary.
-
-## 4. RAG knowledge base
-
-The development knowledge base includes separate sample documents on investment education, risk policy, compliance, investment benefits and FCA-related concepts. The ingestion work covers PDF, Markdown and text parsing, chunking, OpenAI embeddings (`text-embedding-3-small`) and PostgreSQL pgvector storage. The retrieval design uses vector and lexical/hybrid retrieval with reranking components.
+### End-to-end system components
 
 ```mermaid
 flowchart LR
-    D[PDF / Markdown / TXT] --> I[Ingestion and chunking]
-    I --> E[OpenAI embeddings]
-    E --> V[(PostgreSQL pgvector)]
-    Q[Customer query] --> H[Hybrid retrieval]
-    V --> H
-    H --> K[Retrieved knowledge context]
-    K --> A[Knowledge agent]
+    CLIENT[Client] --> API[FastAPI / Pydantic]
+    API --> JWT[JWT + API user/customer mapping]
+    API --> GRAPH[LangGraph workflow]
+    GRAPH --> LLM[OpenAI Chat model]
+    GRAPH --> PROMPT[(PostgreSQL: agent_prompts)]
+    GRAPH --> CUSTOMER[(PostgreSQL: customer data)]
+    GRAPH --> RAG[RAG service]
+    DOCS[PDF / MD / TXT] --> INGEST[Load, chunk, embed, upsert]
+    INGEST --> VECTOR[(PostgreSQL + pgvector)]
+    RAG --> VECTOR
+    RAG --> BM25[Lexical / BM25 search]
+    RAG --> RERANK[Reranking]
+    GRAPH --> EVAL[Agent tests / retrieval metrics / RAGAS]
+    GRAPH -.-> TRACE[LangSmith tracing, when enabled]
 ```
 
-**Boundary:** The documents are development examples, not verified current FCA policy. Retrieval quality and reranker behavior have not been reported as independently benchmarked.
+## Dynamic routing
 
-## 5. PostgreSQL data model
+The workflow state includes `query`, optional `customer_id`, `intent`, `required_information`, `reasoning`, and `query_plan`. Additional output keys used in recent tests include `selected_agents`, `requires_clarification`, `clarification_questions`, `requires_risk`, `requires_portfolio`, `requires_compliance`, `knowledge`, `compliance`, `response`, and `status`. Verify the full `InvestmentState` declaration before adding fields.
 
-Customer tables developed in the project:
+The Query Agent's structured `query_plan` contains fields such as:
 
-- `customers`
-- `customer_employment`, `customer_finances`, `customer_liabilities`
-- `customer_goals`, `customer_investments`, `customer_preferences`, `customer_risk_profiles`
+```json
+{
+  "intent": "personal_advice",
+  "is_complete": false,
+  "requires_clarification": true,
+  "required_information": ["Customer identity to access financial profile and risk assessment"],
+  "selected_agents": [],
+  "reasoning": "Personalized investment recommendations require customer context."
+}
+```
 
-Authentication tables created locally:
+The Planner derives its permitted agent list from `INTENT_AGENTS[intent]`, optionally adds knowledge retrieval for `portfolio_analysis` when proposed, and sets risk/portfolio/compliance dependency flags. The latest Planner code checked:
 
-- `api_users`: username, password hash, active status
-- `api_user_customers`: maps API users to permitted customer IDs
+```python
+needs_customer = "customer_agent" in selected
+missing_customer = needs_customer and not state.get("customer_id")
+needs_clarification = (
+    missing_customer
+    or plan.get("requires_clarification", False)
+    or not plan.get("is_complete", True)
+)
+```
 
-Prompt management uses an `agent_prompts` table with agent name, version, prompt content and active version. Sample customer `CUST-003` was used to exercise the risk-mismatch scenario.
+**Known integration issue:** This can preserve an obsolete Query Agent clarification flag even when `customer_id` is present. A recent test passed `CUST-003`, but the Query Agent still requested **“Customer identity to access financial profile and risk assessment”**. The state also showed `customer_access_verified: None`. This is **not** evidence that authorization succeeded. The safe design is to distinguish (1) customer ID present, (2) access verified by trusted application code, and (3) unresolved investment-specific information. Avoid brittle string matching of clarification questions; prefer structured requirement codes.
 
-## 6. FastAPI and authentication
+### Intent-dependent execution (design expectations)
 
-The FastAPI implementation includes:
-
-| Method | Route | Purpose |
+| Intent / situation | Intended handling | Evaluation implication |
 |---|---|---|
-| GET | `/health` | Health endpoint |
-| POST | `/api/v1/auth/login` | Username/password authentication; JWT issuance |
-| GET | `/api/v1/auth/me` | Current authenticated user |
-| POST | `/api/v1/investment/analyze` | Customer authorization followed by LangGraph execution |
+| `education` | Knowledge Agent → Response Agent when retrieval is needed | RAGAS eligible if actual retrieved contexts and a substantive answer exist |
+| `personal_advice` | Authorized customer context, knowledge as needed, risk, portfolio, compliance, response or human review | Do not equate RAGAS score with investment suitability |
+| `portfolio_analysis` | Customer/risk/portfolio dependencies, conditional knowledge, compliance | Validate allocation and policy constraints separately |
+| `unrelated` | Direct appropriate response without unnecessary customer retrieval | Skip RAGAS when no RAG evidence |
+| Missing details | Clarification route | Skip final-answer RAGAS |
+| Unauthorized customer access | Deny or require trusted authorization | Never access financial records |
 
-Password hashing uses Argon2 through `pwdlib`; access tokens use PyJWT. Authorization checks `api_user_customers` before the graph runs. The authentication tables were created successfully during local setup. Full successful login-to-analysis execution has not been confirmed in the discussion, so it is **not claimed as validated**.
+Actual available intent labels and agent mappings must be checked against `INTENT_AGENTS` and the Query Agent schema; this table is not a verified enumeration of all supported intents.
 
-## 7. Prompt management
+## Agent responsibilities
 
-Agent system prompts are stored in PostgreSQL and loaded through a shared asynchronous helper. Query prompts use explicit delimiters such as `<role>`, `<objective>` and `<instructions>`. The query agent records the resolved prompt ID and version in its output.
+| Agent | Inputs | Primary outputs / responsibilities | Recommended evaluation |
+|---|---|---|---|
+| **Query Agent** | Query, relevant availability flags | Intent, completeness, required information, reasoning, proposed agents | Intent accuracy, macro F1, clarification precision/recall |
+| **Planner Agent** | `query_plan`, trusted state | Permitted agents, clarification, risk/portfolio/compliance flags | Exact route match, agent-selection precision/recall, mandatory-step omission rate |
+| **Customer Agent** | Authorized customer ID | Financial profile, risk tolerance/capacity, goals, liabilities | Field accuracy, completeness, unauthorized-access rejection |
+| **Knowledge Agent** | Query / retrieval plan | Retrieved excerpts, source filenames, combined `knowledge.context`; optionally chunks | Precision@K, Recall@K, Hit Rate, MRR, NDCG, latency |
+| **Risk Agent** | Query, customer, knowledge | Structured risk assessment | Reference agreement, policy-rule violations, consistency |
+| **Portfolio Agent** | Query, customer, risk, knowledge | Structured portfolio analysis / allocations | Allocation sum, bounds, concentration and suitability constraints |
+| **Compliance Agent** | Query, risk, portfolio, knowledge | Compliance status, escalation / human review | Violation recall, false-negative rate, escalation correctness |
+| **Response Agent** | Selected agent outputs and status | User-facing response and status | Faithfulness, relevance, completeness, citation accuracy |
 
-Prompt version management is implemented as local application code. Comparative v1/v2 evaluation results have not been established.
+The agents use structured outputs where appropriate. A `needs_review` outcome is a legitimate controlled result, not necessarily a failed test.
 
-## 8. Testing and observability work
+## RAG knowledge architecture
 
-- A LangGraph test previously demonstrated escalation to `needs_review` for a risk tolerance/capacity mismatch.
-- pytest banking-rule and API test examples have been written as part of the project.
-- RAGAS evaluation code has been added, but an observed RAGAS/LangChain dependency import error prevents claiming successful RAGAS scoring.
-- LangSmith was selected to replace Langfuse; tracing configuration and instrumentation examples were added, but confirmed trace delivery has not been established.
+1. **Sources:** Training/reference PDF, Markdown and text documents covering investment education, diversification, product descriptions, risk policies, suitability and illustrative FCA-related material.
+2. **Ingestion:** Parse documents, split into overlapping chunks, generate OpenAI embeddings, and store chunks with source metadata in PostgreSQL/pgvector. Incremental ingestion/source replacement has been discussed and developed locally; verify the currently deployed ingestion module and table name.
+3. **Retrieval:** Hybrid semantic vector search plus lexical/BM25 retrieval.
+4. **Reranking:** Reorder candidates to select stronger supporting excerpts (a Cohere reranker and/or local cross-encoder were explored in project iterations; verify the active implementation).
+5. **Knowledge Agent:** Return evidence as `knowledge.context`, `knowledge.sources`, and possibly `knowledge.chunks`. The evaluator must match the **actual** output shape.
+6. **Generation:** Response Agent uses selected evidence; source citations should identify retrieved documents. Retrieved text is **untrusted data**, not executable instructions.
 
-These are implementation and integration activities, **not** evidence of completed security, accuracy, regulatory or performance validation.
+The project has used OpenAI `text-embedding-3-small` (1536 dimensions). Previous development iterations referenced `rag_knowledge_chunks` and `knowledge_chunks`; use the table name present in the current code/migrations, rather than assuming both exist.
 
-## 9. Risk and compliance behavior
+> **Source caveat:** Illustrative training files are not authoritative FCA guidance. Production rules and investment advice must rely on reviewed, current, approved sources and appropriate qualified oversight.
 
-The workflow separates query intent, risk assessment and compliance review. For the sample mismatch scenario (aggressive tolerance versus moderate capacity), the prior graph execution returned `needs_review`. The API example also includes a conservative response when `human_review_required` is true.
+## Prompt management and versioning
 
-The project does **not** include verified regulatory approval, a persisted review queue, a completed adviser-review interface or automated investment execution.
+The project includes a PostgreSQL-backed prompt registry concept/implementation using `agent_prompts` and a `get_prompt(agent_name)` loader. Prompt records have included:
 
-## 10. Implementation snapshot
-
-| Area | Evidence-based status |
+| Field | Purpose |
 |---|---|
-| Customer database and sample data | Developed and exercised locally |
-| LangGraph multi-agent flow | Prior local test passed; later refactoring/import fixes in progress |
-| Knowledge ingestion and retrieval | Code developed; end-to-end quality not benchmarked |
-| Prompt registry and version loading | Implemented in local code; import issues addressed |
-| FastAPI/JWT authentication | Code written; auth tables created; full E2E verification outstanding |
-| pytest evaluation | Starter tests written; complete regression results not established |
-| RAGAS evaluation | Integration attempted; dependency error unresolved |
-| LangSmith | Selected and configured in code; live traces not verified |
-| GCP deployment / CI/CD | Not implemented |
+| `id` | Prompt record identifier |
+| `agent` | Agent name |
+| `version` | Prompt version |
+| `content` | System/instruction template |
+| `is_active` | Active version selection |
 
-## 11. Next steps — deployment and CI/CD
+Agent runs may attach prompt metadata such as `query_prompt_version`, `risk_prompt_version`, `portfolio_prompt_version`, and `response_prompt_version`, with ID and version for reproducibility. Prompt sections use clear role/objective/instruction delimiters and structured-output schemas.
 
-**Next target: Google Cloud Platform (GCP) deployment and CI/CD pipeline.** This is planned work, not an implemented capability.
+**Recommended controls (not independently verified as complete):** immutable prompt history, a single active version per agent, rollback, prompt-to-evaluation traceability, approval gates, and prompt-injection regression tests. Do not claim a measured improvement from a new prompt version without a benchmark.
 
-Suggested sequence:
+## Guardrails and compliance
 
-1. Stabilize and verify the local FastAPI/JWT/LangGraph flow and automated tests.
-2. Build and test a Docker image with reproducible dependency versions.
-3. Deploy the containerized FastAPI + LangGraph service to **Cloud Run**, store images in **Artifact Registry**, connect to **Cloud SQL for PostgreSQL** (with pgvector support), and store credentials in **Secret Manager**.
-4. Configure **GitHub Actions CI** for linting, pytest, dependency checks and container builds; use **Workload Identity Federation** for Google Cloud authentication without long-lived service-account keys.
-5. Add **GitHub Actions CD** to publish images to Artifact Registry and deploy to Cloud Run with approvals, environment promotion and rollback.
-6. Add privacy-safe traces, operational monitoring and documented release checks.
+Guardrails should be applied at multiple boundaries rather than delegated entirely to the LLM:
 
-These are **planned improvements**, not completed project capabilities.
+- **API boundary:** Pydantic validation, authentication, request limits and secure error handling.
+- **Authorization:** JWT identity and server-side API-user-to-customer access mapping. A supplied `customer_id` does not establish permission.
+- **Query/Planner:** Restricted intent routing, mandatory compliance checks, clarification for unresolved requirements, and no direct bypass of policy-required agents.
+- **RAG/tool boundary:** Treat retrieved documents and tool responses as untrusted; defend against prompt injection; limit sources to permitted documents; preserve provenance.
+- **Risk/portfolio:** Deterministic validation of financial inputs, risk-capacity mismatch, allocation totals, prohibited products and other policy constraints.
+- **Compliance:** Fail closed to `needs_review`/human escalation for unresolved or conflicting advice; never represent an LLM decision as regulatory approval.
+- **Response:** Ground claims in evidence, avoid guaranteed returns, avoid unsupported FCA claims, avoid exposing PII, and disclose uncertainty.
+- **Operations:** Secret management, logging hygiene, least privilege, monitoring and human review.
 
----
-*This summary reflects code and outcomes shared during development; it is not an independent repository audit.*
+A previous synthetic case flagged **aggressive risk tolerance versus moderate risk capacity** for review. This demonstrates a test case, not comprehensive regulatory certification. Production human-review queue and audit controls remain work to complete/verify.
+
+## Evaluation and observed logs
+
+### 1. Knowledge retrieval evaluation
+
+The retrieval evaluator uses labeled relevant source filenames and reports Precision@K, Recall@K, F1@K, Hit Rate@K, MRR, NDCG@K, and latency. A previously shared **three-case development run** produced:
+
+| Case | Question | Expected labeled source | Observed outcome |
+|---|---|---|---|
+| RAG001 | What is investment risk capacity? | `risk_policy.md` | Hit; Precision 0.20, Recall 1.00, MRR 1.00 |
+| RAG002 | What are benefits of diversification? | `investment_benefits.md` | No labeled hit; retrieved `diversification_guidelines.txt` repeatedly |
+| RAG003 | What suitability checks are required? | `compliance_policy.md` | No labeled hit; retrieved other potentially relevant policy/product files |
+
+**Reported aggregate (development run, not a validated benchmark):**
+
+| Metric | Value |
+|---|---:|
+| Precision@K | 0.067 |
+| Recall@K | 0.333 |
+| F1@K | 0.111 |
+| Hit Rate@K | 0.333 |
+| MRR | 0.333 |
+| NDCG@K | 0.333 |
+| Mean latency | 4.756 s |
+| P95 latency (reported) | 11.419 s |
+
+**Interpretation:** Labels may be incomplete: `diversification_guidelines.txt` may support diversification, and FCA-related documents may support suitability. Review document contents and annotate relevance before changing labels. Repeated chunks from the same file also require a clear document-level versus chunk-level evaluation policy. Three cases are insufficient for reliable quality claims. The slow first request may include warm-up overhead.
+
+### 2. RAGAS response evaluation
+
+`app/evaluation/ragas_evaluator.py` is intended to execute the full graph, collect the final `response` and actual Knowledge Agent excerpts, then evaluate **Faithfulness** and **Response Relevancy** for eligible grounded responses. It should skip when the workflow needs clarification, lacks contexts, fails, or is awaiting review. For personalized advice, evaluate suitability/compliance **separately**; RAGAS alone is insufficient.
+
+**Observed integration sequence:**
+
+1. With `ragas==0.4.3`, importing `ragas` initially failed because it internally referenced `langchain_community.chat_models.vertexai.ChatVertexAI`, absent from the installed `langchain-community==0.4.2`. The import later progressed after a local workaround; the durable compatibility fix is not verified.
+2. `Faithfulness` and `ResponseRelevancy` imports from `ragas.metrics` emit deprecation warnings suggesting `ragas.metrics.collections`. Changing APIs requires corresponding compatibility testing.
+3. An earlier workflow attempt failed in Customer Agent with `ValueError: Customer not found`.
+4. Another run generated an educational SIP response but returned `retrieved_context_count: 0`, so RAGAS skipped; the evidence path must be checked.
+5. **Latest reported personalized-advice run:**
+
+```json
+{
+  "query": "where to invest 100k in a diversified portfolio with moderate risk tolerance and a 5-year investment horizon",
+  "customer_id": "CUST-003",
+  "intent": "personal_advice",
+  "selected_agents": [],
+  "status": "needs_clarification",
+  "response": "Customer identity to access financial profile and risk assessment",
+  "retrieved_context_count": 0,
+  "ragas_scores": null,
+  "evaluation_status": "skipped",
+  "evaluation_reason": "Workflow requires clarification."
+}
+```
+
+Planner debug confirmed `customer_id=CUST-003`, `customer_access_verified=None`, and a Query Agent plan with `is_complete=False` and `requires_clarification=True`. **No successful end-to-end RAGAS score is claimed.**
+
+## API, authentication and data
+
+Routes discussed/developed for the FastAPI service include:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Health check |
+| `POST /api/v1/auth/login` | Issue access token |
+| `GET /api/v1/auth/me` | Current authenticated user |
+| `POST /api/v1/investment/analyze` | Submit investment question to workflow |
+
+Authentication has used hashed API-user credentials, JWT, and `api_user_customers`-style customer access mapping; customer profiles are stored separately in PostgreSQL. A standalone script calling `investment_graph.ainvoke()` **does not automatically enforce FastAPI authorization dependencies**. Keep direct graph tests synthetic and isolated, or inject authorization context only from a trusted test fixture.
+
+## Current issues and next engineering steps
+
+1. **Query/Planner completeness:** Pass customer-context availability to the Query Agent; distinguish identifier, authorization and investment-specific missing fields; use structured requirement codes rather than free-text filtering.
+2. **Authorization enforcement:** Verify API-user/customer mapping before Customer Agent reads records; use a dedicated access-denied/authorization-required state.
+3. **Knowledge routing:** Verify that educational and evidence-dependent personalized routes execute Knowledge Agent; ensure final state preserves `knowledge.context` or `knowledge.chunks`.
+4. **RAGAS compatibility:** Replace temporary dependency patches with a tested version set; migrate deprecated metrics only alongside compatible evaluation API changes.
+5. **Retrieval benchmark:** Review ground-truth source labels, deduplicate appropriately, increase dataset size, report per-intent metrics and warm/cold latency.
+6. **Compliance and audit:** Add deterministic policy gates, verified human-review workflow, versioned policy provenance, redacted tracing and adversarial tests.
+7. **Deployment:** CI/CD, managed secrets, monitoring, production infrastructure and regulatory approval are future work unless separately verified.
+
+## Technology stack
+
+- **Orchestration:** LangGraph
+- **LLM / agent framework:** OpenAI Chat models via LangChain, structured outputs
+- **API:** FastAPI, Pydantic
+- **Persistence:** PostgreSQL, SQLAlchemy; pgvector for embeddings
+- **RAG:** PDF/MD/TXT ingestion, OpenAI embeddings, vector + BM25 search, reranking
+- **Evaluation:** Custom retrieval evaluator, RAGAS, pytest, optional LangSmith tracing
+- **Development:** Docker, Python, Windows PowerShell
+
+## Disclaimer
+
+This is a research/development project. Sample policy documents and customer data are fictional training material. The application must not be represented as providing authorized regulated investment advice, guaranteed returns, verified suitability, or up-to-date FCA compliance without appropriate independent validation, controls and qualified human oversight.
