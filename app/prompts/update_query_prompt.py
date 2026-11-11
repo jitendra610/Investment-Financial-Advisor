@@ -39,7 +39,7 @@ def main():
     # Store new version without overwriting version 1.
     add_prompt(
         agent="query",
-        version=3,
+        version=4,
         content=prompt_content,
     )
 
@@ -48,7 +48,7 @@ def main():
     # Activate version 2.
     activate_prompt(
         agent="query",
-        version=3,
+        version=4,
     )
 
     print("Query Agent prompt version 2 activated")

@@ -101,7 +101,7 @@ async def main():
 
             # Import only when needed, so a RAGAS dependency
             # error does not prevent LangGraph execution.
-            from app.evaluation.ragas_evaluator import evaluate_answer
+            from app.evaluation.ragas_evaluator1 import evaluate_answer
 
             scores = await asyncio.to_thread(
                 evaluate_answer,
